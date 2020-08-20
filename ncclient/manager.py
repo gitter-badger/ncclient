@@ -194,12 +194,12 @@ class Manager(object):
     HUGE_TREE_DEFAULT = False
     """Default for `huge_tree` support for XML parsing of RPC replies (defaults to False)"""
 
-    def __init__(self, session, device_handler, timeout=30):
+    def __init__(self, session, device_handler, **manager_params):
         self._session = session
-        self._async_mode = False
-        self._timeout = timeout
-        self._raise_mode = operations.RaiseMode.ALL
-        self._huge_tree = self.HUGE_TREE_DEFAULT
+        self._async_mode = manager_params.get("async_mode", False)
+        self._timeout = manager_params.get("timeout", 30)
+        self._raise_mode = manager_params.get("raise_mode", operations.RaiseMode.ALL)
+        self._huge_tree = manager_params.get("huge_tree", self.HUGE_TREE_DEFAULT)
         self._device_handler = device_handler
         self._vendor_operations = {}
         if device_handler:
