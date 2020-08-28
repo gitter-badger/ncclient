@@ -1,5 +1,6 @@
 # Copyright 2009 Shikhar Bhushan
 # Copyright 2011 Leonidas Poulopoulos
+# Copyright 2015 Austin Cormier implements the methods of Asyncio.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +23,7 @@ from ncclient import operations
 from ncclient import transport
 import logging
 import functools
+import asyncio, platform
 
 from ncclient.xml_ import *
 
@@ -137,8 +139,7 @@ def connect_ssh(*args, **kwds):
         if session.transport:
             session.close()
         raise
-    return Manager(session, device_handler, **manager_params)
-
+    return Manager(session, device_handler, manager_params=manager_params)
 
 def connect_ioproc(*args, **kwds):
     device_params = _extract_device_params(kwds)
@@ -154,10 +155,28 @@ def connect_ioproc(*args, **kwds):
     session = third_party_import.IOProc(device_handler)
     session.connect()
 
-    return Manager(session, device_handler, **manager_params)
-
+    return Manager(session, device_handler, manager_params=manager_params)
 
 def connect(*args, **kwds):
+    # use sync_mode by default
+    manager_params = kwds.get("manager_params", {"async_mode": False})
+    if manager_params.get("async_mode") is True:
+        if platform.python_version() < '3':
+            raise ValueError("asyncio must be higher than python 3.5")
+        return async_connect(*args, **kwds)
+    else:
+        return sync_connect(*args, **kwds)
+
+def async_connect(*args, **kwds):
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(asyncio_connect(loop=loop, *args, **kwds))
+    try:
+        return loop.run_until_complete(task)
+    except Exception as e:
+        loop.close()
+        raise
+
+def sync_connect(*args, **kwds):
     if "host" in kwds:
         host = kwds["host"]
         device_params = kwds.get('device_params', {})
@@ -194,7 +213,8 @@ class Manager(object):
     HUGE_TREE_DEFAULT = False
     """Default for `huge_tree` support for XML parsing of RPC replies (defaults to False)"""
 
-    def __init__(self, session, device_handler, **manager_params):
+    def __init__(self, session, device_handler, **kwargs):
+        manager_params = kwargs.get("manager_params", {})
         self._session = session
         self._async_mode = manager_params.get("async_mode", False)
         self._timeout = manager_params.get("timeout", 30)
@@ -342,3 +362,126 @@ class Manager(object):
     @huge_tree.setter
     def huge_tree(self, x):
         self._huge_tree = x
+
+    @property
+    def session(self):
+        return self._session
+
+    @property
+    def device_handler(self):
+        return self._device_handler
+
+
+def add_rpc_asyncio_event_support(rpc, loop):
+    """ Patch the RPC class in order to use an asyncio.Event
+     Create an asyncio.Event which is bound to the event loop. Patch the
+    existing RPC._event.set so that it invokes the set() (thread-safely)
+    on the newly created asyncio event.
+    The only two methods that set the RPC._event attribute are
+    RPC.deliver_reply and RPC.deliver_error.  After patching
+    when they attempt to set the Event, our wait() coroutine will awaken.
+    Arguments:
+        rpc - An RPC instance
+        loop - The asyncio loop to create the asyncio.Event on
+    Returns:
+        The created asyncio.Event
+    """
+    event = asyncio.Event(loop=loop)
+
+    def set_asyncio_event():
+        logger.debug("Setting asyncio.Event flag")
+        loop.call_soon_threadsafe(event.set)
+
+    rpc._event.set = set_asyncio_event
+
+    return event
+
+class AsyncioManager(Manager):
+    """ This class provides an ayncio interface which is subclassed from ncclient.Manager
+    This class attempts to take advantage of the ncclient async_mode features to
+    provide a complete asyncio interface which maps directory to the existing
+    Manager interface.  All blocking operations are wrapped in coroutines.
+    """
+    def __init__(self, session, device_handler=None, manager_params=None, loop=None):
+        """ Create a AyncIOManager instanace
+        Arguments:
+            session - The connected SSHSession instance
+            device_handler - DeviceHandler instance
+            manager_params - Manager parameters
+            loop - asyncio.BaseEventLoop instance
+        """
+        super().__init__(
+            session=session,
+            device_handler=device_handler,
+            manager_params=manager_params,
+        )
+
+        self._loop = loop if loop is not None else asyncio.get_event_loop()
+
+    async def execute(self, cls, *args, **kwargs):
+        """ Execute the netconf operation
+        All Manager operations are wrappers around execute
+        (see manager.py:OpExecutor()). This follows the same approach
+        as request when creating the request (the cls() call).
+        After creating the request object we patch the RPC instance (rpc.py) so
+        that the event uses the asyncio.Event intead of Threading.Event.
+        This allows us to use the asyncio.Event.wait() coroutine to wait until
+        the request is completed.
+        The only two methods that then interact with the RPC _event attribute is
+        RPC.deliver_event and RPC.deliver_error.
+        Arguments:
+            cls - The RPC operation subclass (see manager.py:OPERATIONS)
+            *args - Positional arguments to pass into RPC.request
+            **kwargs - Keyword arguments to pass into RPC.request
+        """
+        rpc = cls(self._session,
+                  device_handler=self._device_handler,
+                  async_mode=self._async_mode,
+                  timeout=self._timeout,
+                  raise_mode=self._raise_mode,
+                  huge_tree=self._huge_tree)
+
+        event = add_rpc_asyncio_event_support(rpc, self._loop)
+
+        # Start the request
+        rpc.request(*args, **kwargs)
+
+        # Wrap the Event.wait() coroutine in a wait_for() to give
+        # the ability to time-out if request doesn't complete in a reasonable
+        # amount of time.
+        await asyncio.wait_for(
+                event.wait(),
+                timeout=self._timeout,
+                loop=self._loop,
+                )
+
+        # If an error was set, then re-raise so the exeception will
+        # propogate up the stack.
+        if rpc._error is not None:
+            raise rpc._error
+
+        return rpc._reply
+
+
+async def asyncio_connect(loop=None, *args, **kwargs):
+    """ Wraps synchronous ncclient.manager.connect within a coroutine
+    Once the Manager.connect() returns with a Manager instance, create
+    an equivelent AsyncioManager instance with the now connected session.
+    Arguments:
+        loop - asyncio.BaseEventLoop instance
+        *args - Positional arguments into Manager.connect
+        **kwargs - Keyword arguments into Manager.connect
+     Returns:
+        An AsyncioManager instance
+    """
+    manager_params = _extract_manager_params(kwargs)
+    loop = loop if loop is not None else asyncio.get_event_loop()
+    mgr = await loop.run_in_executor(
+                    executor=None,
+                    func=functools.partial(sync_connect, *args, **kwargs))
+
+    return AsyncioManager(mgr._session,
+                          mgr._device_handler,
+                          manager_params=manager_params,
+                          loop=loop)
+
