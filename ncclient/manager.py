@@ -22,6 +22,7 @@ from ncclient import operations
 from ncclient import transport
 import logging
 import functools
+import asyncio, platform
 
 from ncclient.xml_ import *
 
@@ -137,8 +138,7 @@ def connect_ssh(*args, **kwds):
         if session.transport:
             session.close()
         raise
-    return Manager(session, device_handler, **manager_params)
-
+    return Manager(session, device_handler, manager_params=manager_params)
 
 def connect_ioproc(*args, **kwds):
     device_params = _extract_device_params(kwds)
@@ -154,10 +154,9 @@ def connect_ioproc(*args, **kwds):
     session = third_party_import.IOProc(device_handler)
     session.connect()
 
-    return Manager(session, device_handler, **manager_params)
+    return Manager(session, device_handler, manager_params=manager_params)
 
-
-def connect(*args, **kwds):
+def sync_connect(*args, **kwds):
     if "host" in kwds:
         host = kwds["host"]
         device_params = kwds.get('device_params', {})
@@ -194,7 +193,8 @@ class Manager(object):
     HUGE_TREE_DEFAULT = False
     """Default for `huge_tree` support for XML parsing of RPC replies (defaults to False)"""
 
-    def __init__(self, session, device_handler, **manager_params):
+    def __init__(self, session, device_handler, **kwargs):
+        manager_params = kwargs.get("manager_params", {})
         self._session = session
         self._async_mode = manager_params.get("async_mode", False)
         self._timeout = manager_params.get("timeout", 30)
@@ -342,3 +342,12 @@ class Manager(object):
     @huge_tree.setter
     def huge_tree(self, x):
         self._huge_tree = x
+
+    @property
+    def session(self):
+        return self._session
+
+    @property
+    def device_handler(self):
+        return self._device_handler
+

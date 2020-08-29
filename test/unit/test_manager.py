@@ -1,6 +1,6 @@
 import unittest
 from mock import patch, MagicMock
-from ncclient import manager
+from ncclient import manager, connect
 from ncclient.devices.junos import JunosDeviceHandler
 import logging
 
@@ -23,13 +23,13 @@ class TestManager(unittest.TestCase):
 
     @patch('ncclient.manager.connect_ssh')
     def test_connect_ssh(self, mock_ssh):
-        manager.connect(host='host')
+        connect.connect(host='host')
         mock_ssh.assert_called_once_with(host='host')
 
     @patch('ncclient.transport.SSHSession.load_known_hosts')
     @patch('ncclient.transport.SSHSession.connect')
     def test_connect_ssh1(self, mock_ssh, mock_load_known_hosts):
-        manager.connect(host='host')
+        connect.connect(host='host')
         mock_ssh.assert_called_once_with(host='host')
         mock_load_known_hosts.assert_called_once_with()
 
@@ -39,7 +39,7 @@ class TestManager(unittest.TestCase):
     def test_connect_exception(self, mock_close, mock_transport, mock_ssh):
         mock_ssh.side_effect = Exception
         try:
-            manager.connect(host='host')
+            connect.connect(host='host')
         except Exception:
             Exception("connect occured exception")
         mock_ssh.assert_called_once_with(host='host')
@@ -83,29 +83,29 @@ class TestManager(unittest.TestCase):
     @patch('ncclient.manager.connect_ssh')
     def test_connect_ssh_with_hostkey_ed25519(self, mock_ssh):
         hostkey = 'AAAAC3NzaC1lZDI1NTE5AAAAIIiHpGSf8fla6tCwLpwshvMGmUK+B/0v5CsRu+5v4uT7'
-        manager.connect(host='host', hostkey=hostkey)
+        connect.connect(host='host', hostkey=hostkey)
         mock_ssh.assert_called_once_with(host='host', hostkey=hostkey)
 
     @patch('ncclient.manager.connect_ssh')
     def test_connect_ssh_with_hostkey_ecdsa(self, mock_ssh):
         hostkey = 'AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFJV9xLkuntH3Ry0GmK4FjYlW+01Ik4j/gbW+i3yIx+YEkF0B3iM7kiyDPqvmOPuVGfW+gq5oQzzdvHKspNkw70='
-        manager.connect(host='host', hostkey=hostkey)
+        connect.connect(host='host', hostkey=hostkey)
         mock_ssh.assert_called_once_with(host='host', hostkey=hostkey)
 
     @patch('ncclient.manager.connect_ssh')
     def test_connect_ssh_with_hostkey_rsa(self, mock_ssh):
         hostkey = 'AAAAB3NzaC1yc2EAAAADAQABAAABAQDfEAdDrz3l8+PF510ivzWyX/pjpn3Cp6UgjJOinXz82e1LTURZhKwm8blcP8aWe8Uri65Roe6Q/H1WMaR3jFJj4UW2EZY5N+M4esPhoP/APOnDu2XNKy9AK9yD/Bu64TYgkIPQ/6FHdotcQdYTAJ+ac+YfJMp5mhVPnRIh4rlF08a0/tDHzLJVMEoXzp5nfVHcA4W3+5RRhklbct10U0jxHmG8Db9XbKiEbhWs/UMy59UpJ+zr7zLUYPRntgqqkpCyyfeHFNK1P6m3FmyT06QekOioCFmY05y65dkjAwBlaO1RKj1X1lgCirRWu4vxYBo9ewIGPZtuzeyp7jnl7kGV'
-        manager.connect(host='host', hostkey=hostkey)
+        connect.connect(host='host', hostkey=hostkey)
         mock_ssh.assert_called_once_with(host='host', hostkey=hostkey)
 
     @patch('ncclient.manager.connect_ssh')
     def test_connect_outbound_ssh(self, mock_ssh):
-        manager.connect(host=None, sock_fd=6)
+        connect.connect(host=None, sock_fd=6)
         mock_ssh.assert_called_once_with(host=None, sock_fd=6)
 
     @patch('ncclient.manager.connect_ioproc')
     def test_connect_ioproc(self, mock_ssh):
-        manager.connect(host='localhost', device_params={'name': 'junos', 
+        connect.connect(host='localhost', device_params={'name': 'junos', 
                                                         'local': True})
         mock_ssh.assert_called_once_with(host='localhost', 
                                          device_params={'local': True, 'name': 'junos'})
@@ -118,7 +118,7 @@ class TestManager(unittest.TestCase):
         log = logging.getLogger('TestManager.test_connect_with_ssh_config')
         ssh_config_path = 'test/unit/ssh_config'
 
-        conn = manager.connect(host='fake_host',
+        conn = connect.connect(host='fake_host',
                                port=830,
                                username='user',
                                password='password',
@@ -146,7 +146,7 @@ class TestManager(unittest.TestCase):
     @patch('ncclient.transport.ssh.Session._post_connect')
     @patch('ncclient.transport.third_party.junos.ioproc.IOProc.connect')
     def test_ioproc(self, mock_connect, mock_ioproc):
-        conn = manager.connect(host='localhost',
+        conn = connect.connect(host='localhost',
                                port=22,
                                username='user',
                                password='password',
@@ -163,7 +163,7 @@ class TestManager(unittest.TestCase):
 
     @patch('ncclient.transport.SSHSession')
     def test_make_manager_params(self, mock_ssh):
-        conn = manager.connect(host='fake_host',
+        conn = connect.connect(host='fake_host',
                                port=830,
                                username='user',
                                password='password',
@@ -278,7 +278,7 @@ class TestManager(unittest.TestCase):
         self.assertFalse(mock_rpc.call_args[1]['huge_tree'])
 
     def _mock_manager(self):
-        conn = manager.connect(host='10.10.10.10',
+        conn = connect.connect(host='10.10.10.10',
                                port=22,
                                username='user',
                                password='password',
@@ -298,7 +298,7 @@ class TestManager(unittest.TestCase):
         self.assertEqual(conn.connected, True)
 
     def _mock_outbound_manager(self):
-        conn = manager.connect(host=None,
+        conn = connect.connect(host=None,
                                sock_fd=6,
                                username='user',
                                password='password',
