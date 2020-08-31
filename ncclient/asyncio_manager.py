@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import functools
-import logging
+import logging, sys
 from ncclient import manager
+if sys.version_info.major > 2:
+    import asyncio
 
 logger = logging.getLogger('ncclient.asyncio_manager')
 

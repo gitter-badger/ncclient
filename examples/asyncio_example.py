@@ -11,7 +11,10 @@
 # $ ./asyncio_example.py host user password
 
 from ncclient import connect
-import logging, asyncio, sys
+import logging, sys
+
+if sys.version_info.major > 2:
+    import asyncio
 
 filter1 = '''
     <top xmlns="xxx.org">

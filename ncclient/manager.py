@@ -22,7 +22,10 @@ from ncclient import operations
 from ncclient import transport
 import logging
 import functools
-import asyncio, platform
+import sys
+
+if sys.version_info.major > 2:
+    import asyncio
 
 from ncclient.xml_ import *
 
